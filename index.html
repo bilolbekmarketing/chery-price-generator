@@ -307,7 +307,7 @@
     }
 
     .advisor-panel {
-      margin: 0 0 26px;
+      margin: 26px 0 0;
       padding: 24px;
     }
 
@@ -319,11 +319,44 @@
       margin-bottom: 16px;
     }
 
+    .advisor-toggle {
+      min-height: 42px;
+      border: 0;
+      border-radius: 12px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #fff;
+      background: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: var(--cursor-arrow);
+      box-shadow: var(--shadow);
+    }
+
+    .advisor-toggle svg {
+      transition: transform .18s ease;
+    }
+
+    .advisor-panel.expanded .advisor-toggle svg {
+      transform: rotate(180deg);
+    }
+
+    .advisor-content {
+      display: none;
+    }
+
+    .advisor-panel.expanded .advisor-content {
+      display: block;
+    }
+
     .advisor-title {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.1;
-      font-weight: 950;
+      font-size: 18px;
+      line-height: 1.15;
+      font-weight: 820;
     }
 
     .advisor-subtitle {
@@ -331,7 +364,7 @@
       color: var(--muted);
       font-size: 12px;
       line-height: 1.35;
-      font-weight: 750;
+      font-weight: 620;
     }
 
     .advisor-grid {
@@ -354,30 +387,30 @@
     .advisor-label {
       color: var(--muted);
       font-size: 10px;
-      font-weight: 950;
+      font-weight: 760;
       letter-spacing: .04em;
       text-transform: uppercase;
     }
 
     .advisor-bank {
       color: var(--ink);
-      font-size: 16px;
+      font-size: 15px;
       line-height: 1.12;
-      font-weight: 950;
+      font-weight: 780;
     }
 
     .advisor-value {
       color: var(--blue);
-      font-size: 19px;
+      font-size: 17px;
       line-height: 1.12;
-      font-weight: 950;
+      font-weight: 830;
     }
 
     .advisor-meta {
       color: var(--muted);
       font-size: 11px;
       line-height: 1.35;
-      font-weight: 800;
+      font-weight: 620;
     }
 
     .advisor-term-list {
@@ -399,6 +432,7 @@
       margin-bottom: 5px;
       color: var(--ink);
       font-size: 12px;
+      font-weight: 780;
     }
 
     .preview-head {
@@ -1108,7 +1142,8 @@
       }
       .grid { grid-template-columns: 1fr; }
       .controls-panel, .preview-panel, .advisor-panel { padding: 18px; border-radius: 22px; }
-      .advisor-head { flex-direction: column; }
+      .advisor-head { flex-direction: column; margin-bottom: 12px; }
+      .advisor-toggle { width: 100%; }
       .advisor-grid,
       .advisor-term-list {
         grid-template-columns: 1fr;
@@ -1254,18 +1289,6 @@
       </div>
     </section>
 
-    <section class="panel advisor-panel" id="advisorPanel">
-      <div class="advisor-head">
-        <div>
-          <h2 class="advisor-title">Помощник выбора</h2>
-          <p class="advisor-subtitle" id="advisorSummary">Сравнение всех банковских программ для выбранной модели.</p>
-        </div>
-        <div class="style-badge">Без страховки</div>
-      </div>
-      <div class="advisor-grid" id="advisorCards"></div>
-      <div class="advisor-term-list" id="advisorTerms"></div>
-    </section>
-
     <section class="panel preview-panel">
       <div class="preview-head">
         <div class="preview-label" data-i18n="preview">Предпросмотр</div>
@@ -1297,6 +1320,26 @@
           </div>
         </div>
         </div>
+      </div>
+    </section>
+
+    <section class="panel advisor-panel" id="advisorPanel">
+      <div class="advisor-head">
+        <div>
+          <h2 class="advisor-title">Помощник выбора</h2>
+          <p class="advisor-subtitle" id="advisorSummary">Сравнение всех банковских программ для выбранной модели.</p>
+        </div>
+        <button class="advisor-toggle" id="advisorToggle" type="button" aria-expanded="false">
+          <span id="advisorToggleText">Показать сравнение</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="advisor-content" id="advisorContent">
+        <div class="style-badge">Без страховки</div>
+        <div class="advisor-grid" id="advisorCards"></div>
+        <div class="advisor-term-list" id="advisorTerms"></div>
       </div>
     </section>
   </main>
@@ -1646,7 +1689,8 @@
       currency: 'UZS',
       model: 'Chery Arrizo 6 Pro',
       trim: 'Comfort',
-      bank: 'Ipoteka Bank'
+      bank: 'Ipoteka Bank',
+      advisorOpen: false
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -1985,6 +2029,9 @@
       const currency = state.currency === 'USD' ? '$' : "so'm";
       const trimLabel = state.trim === '-' ? 'без комплектации' : state.trim;
       summary.textContent = `${state.model} / ${trimLabel}: найдено ${options.length} вариантов по ${new Set(options.map((item) => item.bank)).size} банкам. Сравнение без учета страховки.`;
+      $('#advisorPanel').classList.toggle('expanded', state.advisorOpen);
+      $('#advisorToggle').setAttribute('aria-expanded', state.advisorOpen ? 'true' : 'false');
+      $('#advisorToggleText').textContent = state.advisorOpen ? 'Скрыть сравнение' : 'Показать сравнение';
 
       if (!options.length) {
         cards.innerHTML = advisorCard('Рекомендация', null);
@@ -2474,6 +2521,11 @@
 
       window.addEventListener('resize', () => {
         requestAnimationFrame(fitPreview);
+      });
+
+      $('#advisorToggle').addEventListener('click', () => {
+        state.advisorOpen = !state.advisorOpen;
+        renderAdvisor();
       });
 
       $('#settingsBtn').addEventListener('click', openAdminModal);
