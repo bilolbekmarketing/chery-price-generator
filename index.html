@@ -351,9 +351,15 @@
       padding: 26px 28px 52px;
     }
 
+    .preview-stage {
+      width: max-content;
+      min-width: 100%;
+    }
+
     #capture {
       width: max-content;
       min-width: 100%;
+      transform-origin: top left;
     }
 
     .offer {
@@ -719,11 +725,54 @@
     @media (max-width: 620px) {
       .app { width: min(100% - 18px, 1200px); padding-top: 18px; }
       h1 { font-size: 27px; }
+      .subtitle { font-size: 12px; }
+      .topbar { gap: 14px; }
+      .top-controls {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .pill-group {
+        width: 100%;
+        justify-content: stretch;
+      }
+      .pill-group button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 0 8px;
+      }
+      .rate-pill {
+        grid-column: span 2;
+        width: 100%;
+        justify-content: center;
+      }
+      .rate-pill input {
+        width: 92px;
+      }
+      .settings-btn {
+        display: none;
+      }
       .grid { grid-template-columns: 1fr; }
       .controls-panel, .preview-panel { padding: 18px; border-radius: 22px; }
-      .price-card { padding: 18px; }
+      .controls-bottom {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+      }
+      .checkbox-pill { width: 100%; justify-content: center; }
+      .price-card {
+        overflow: hidden;
+        padding: 12px;
+        border-radius: 18px;
+      }
+      .preview-head {
+        align-items: flex-start;
+        margin-bottom: 14px;
+      }
       .download-row { width: 100%; }
       .download-btn, .size-pill { width: 100%; justify-content: center; }
+      .secondary-download { display: none; }
     }
   </style>
 </head>
@@ -841,6 +890,7 @@
       </div>
 
       <div class="price-card">
+        <div class="preview-stage" id="previewStage">
         <div id="capture">
           <div class="offer">
             <div class="offer-head">
@@ -859,6 +909,7 @@
             </div>
             <div class="date" id="dateLine">Sana: 05.07.2026</div>
           </div>
+        </div>
         </div>
       </div>
     </section>
@@ -1305,7 +1356,34 @@
       $('#dateLine').textContent = `Sana: ${new Date().toLocaleDateString('ru-RU')}`;
       document.body.className = state.style;
       renderMatrix();
+      requestAnimationFrame(fitPreview);
       schedulePrepareDownload();
+    }
+
+    function fitPreview() {
+      const card = $('.price-card');
+      const stage = $('#previewStage');
+      const capture = $('#capture');
+      if (!card || !stage || !capture) return;
+
+      const isMobile = window.matchMedia('(max-width: 620px)').matches;
+      const naturalWidth = capture.scrollWidth || capture.getBoundingClientRect().width;
+      const naturalHeight = capture.scrollHeight || capture.getBoundingClientRect().height;
+
+      if (!isMobile || !naturalWidth || !naturalHeight) {
+        capture.style.transform = 'none';
+        stage.style.width = '';
+        stage.style.height = '';
+        stage.style.minWidth = '';
+        return;
+      }
+
+      const availableWidth = card.clientWidth;
+      const scale = Math.min(1, availableWidth / naturalWidth);
+      capture.style.transform = `scale(${scale})`;
+      stage.style.minWidth = '0';
+      stage.style.width = `${Math.ceil(naturalWidth * scale)}px`;
+      stage.style.height = `${Math.ceil(naturalHeight * scale)}px`;
     }
 
     function setActiveButton(selector, attr, value) {
@@ -1378,6 +1456,10 @@
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') hideExportModal();
       });
+
+      window.addEventListener('resize', () => {
+        requestAnimationFrame(fitPreview);
+      });
     }
 
     function triggerDownload(blob, filename) {
@@ -1429,6 +1511,8 @@
       clone.style.width = `${width}px`;
       clone.style.minWidth = `${width}px`;
       clone.style.height = `${height}px`;
+      clone.style.transform = 'none';
+      clone.style.transformOrigin = 'top left';
 
       const css = Array.from(document.styleSheets)
         .map((sheet) => {
@@ -1501,8 +1585,8 @@
       const widthInput = Number($('#exactWidth').value || 0);
       const heightInput = Number($('#exactHeight').value || 0);
       const rect = node.getBoundingClientRect();
-      const width = widthInput || Math.ceil(rect.width);
-      const height = heightInput || Math.ceil(rect.height);
+      const width = widthInput || Math.ceil(node.scrollWidth || rect.width);
+      const height = heightInput || Math.ceil(node.scrollHeight || rect.height);
       const svg = getExportSvg(node, width, height);
       const pngBlob = await renderSvgToPngBlob(svg, width, height);
 
