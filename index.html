@@ -435,6 +435,29 @@
       font-weight: 780;
     }
 
+    .support-footer {
+      margin: 14px 0 0;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--panel) 72%, var(--soft));
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 650;
+    }
+
+    .support-footer a {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .support-footer a:hover {
+      text-decoration: underline;
+    }
+
     .preview-head {
       display: flex;
       justify-content: space-between;
@@ -1342,6 +1365,14 @@
         <div class="advisor-term-list" id="advisorTerms"></div>
       </div>
     </section>
+
+    <footer class="support-footer">
+      Данный калькулятор разработан компанией Chery для удобного расчета финансовых условий.
+      По всем техническим вопросам, связанным с работой калькулятора, вы можете обратиться в Telegram:
+      <a href="https://t.me/Bilolbek_chery" target="_blank" rel="noopener">@Bilolbek_chery</a>
+      или по номеру:
+      <a href="tel:+998948811480">+998 94 881 14 80</a>.
+    </footer>
   </main>
 
   <div class="export-modal" id="exportModal" aria-hidden="true">
