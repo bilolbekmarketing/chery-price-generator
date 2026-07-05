@@ -369,7 +369,7 @@
 
     .advisor-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 12px;
     }
 
@@ -1840,6 +1840,20 @@
       return toShownCurrency(priceUZS());
     }
 
+    function customDownPaymentShown(price = shownPrice()) {
+      const customDp = Number($('#customDp').value || 0);
+      if (customDp <= 0) return 0;
+      const shown = state.currency === 'USD'
+        ? customDp / Math.max(1, Number($('#exchangeRate').value || 1))
+        : customDp;
+      return Math.min(Math.max(0, shown), price);
+    }
+
+    function qualifyingDpTier(rateRows, dpPercent) {
+      const eligible = rateRows.filter((row) => row <= dpPercent + 0.0001);
+      return eligible.length ? eligible[eligible.length - 1] : null;
+    }
+
     function renderModelOptions() {
       normalizeState();
       $('#model').innerHTML = MODELS.map((item) => `<option value="${item.name}">${item.name}</option>`).join('');
@@ -1896,10 +1910,15 @@
       const rateRows = Object.keys(rates).map(Number).sort((a, b) => a - b);
       const terms = Array.from(new Set(Object.values(rates).flatMap((tier) => Object.keys(tier).map(Number)))).sort((a, b) => a - b);
       const selectedPrice = shownPrice();
-      const customDp = Number($('#customDp').value || 0);
-      const customDpShown = state.currency === 'USD' && customDp > 0 ? customDp / Math.max(1, Number($('#exchangeRate').value || 1)) : customDp;
+      const customDpShown = customDownPaymentShown(selectedPrice);
       const insuranceInput = Number($('#insurance').value || 0);
       const showPct = $('#showPct').checked;
+      const customDpActive = customDpShown > 0;
+      const customDpPct = customDpActive ? (customDpShown / selectedPrice * 100) : 0;
+      const customTier = customDpActive ? qualifyingDpTier(rateRows, customDpPct) : null;
+      const rowsToRender = customDpActive
+        ? [{ labelPct: customDpPct, amount: customDpShown, tier: customTier, custom: true }]
+        : rateRows.map((dpPct) => ({ labelPct: dpPct, amount: selectedPrice * (dpPct / 100), tier: dpPct, custom: false }));
 
       matrix.style.gridTemplateColumns = `140px repeat(${terms.length}, minmax(110px, 1fr))`;
       matrix.innerHTML = `
@@ -1912,9 +1931,9 @@
         `).join('')}
       `;
 
-      rateRows.forEach((dpPct) => {
-        const dpAmount = customDpShown > 0 ? customDpShown : selectedPrice * (dpPct / 100);
-        const dpPercentLabel = customDpShown > 0 ? `${(dpAmount / selectedPrice * 100).toFixed(1)} %` : `${dpPct} %`;
+      rowsToRender.forEach((row) => {
+        const dpAmount = row.amount;
+        const dpPercentLabel = row.custom ? `${row.labelPct.toFixed(1)} %` : `${row.labelPct} %`;
         matrix.insertAdjacentHTML('beforeend', `
           <div class="cell dp">
             <span class="dp-pct">${dpPercentLabel}</span>
@@ -1924,10 +1943,13 @@
         `);
 
         terms.forEach((term) => {
-          const rate = rates[dpPct]?.[term];
+          const rate = row.tier === null ? undefined : rates[row.tier]?.[term];
 
           if (rate === undefined || (!showPct && rate > 0)) {
-            matrix.insertAdjacentHTML('beforeend', '<div class="cell"></div>');
+            matrix.insertAdjacentHTML('beforeend', row.custom && row.tier === null
+              ? `<div class="cell"><span class="insurance-line">${state.lang === 'ru' ? 'Взнос ниже минимума' : "To'lov minimumdan past"}</span></div>`
+              : '<div class="cell"></div>'
+            );
             return;
           }
 
@@ -1954,29 +1976,51 @@
       const price = shownPrice();
       const trimPrograms = PROGRAM_MATRIX[state.model]?.[state.trim] || {};
       const options = [];
+      const customDp = customDownPaymentShown(price);
+      const hasCustomDp = customDp > 0;
 
       BANKS.forEach((bank) => {
         const program = trimPrograms[bank];
         const rates = PROGRAM_RATES[bank]?.[program];
         if (!program || !rates) return;
 
-        Object.keys(rates).map(Number).sort((a, b) => a - b).forEach((dpPct) => {
-          const dpAmount = price * (dpPct / 100);
+        const dpRows = Object.keys(rates).map(Number).sort((a, b) => a - b);
+        const rows = hasCustomDp
+          ? [{
+              labelPct: customDp / price * 100,
+              amount: customDp,
+              tier: qualifyingDpTier(dpRows, customDp / price * 100),
+              custom: true
+            }]
+          : dpRows.map((dpPct) => ({
+              labelPct: dpPct,
+              amount: price * (dpPct / 100),
+              tier: dpPct,
+              custom: false
+            }));
+
+        rows.forEach((row) => {
+          if (row.tier === null) return;
+          const dpAmount = row.amount;
           const principal = Math.max(0, price - dpAmount);
-          Object.entries(rates[dpPct] || {}).forEach(([termText, rate]) => {
+          Object.entries(rates[row.tier] || {}).forEach(([termText, rate]) => {
             const term = Number(termText);
             if (!Number.isFinite(term) || rate === undefined) return;
             const monthly = calculateAnnuity(principal, term, Number(rate));
+            const total = dpAmount + monthly * term;
             options.push({
               bank,
               program,
-              dpPct,
+              dpPct: row.labelPct,
+              rateTier: row.tier,
               dpAmount,
               principal,
               term,
               rate: Number(rate),
               monthly,
-              total: dpAmount + monthly * term
+              total,
+              overpayment: Math.max(0, total - price),
+              customDp: row.custom
             });
           });
         });
@@ -1995,7 +2039,7 @@
     function describeOption(option) {
       if (!option) return '';
       const currency = state.currency === 'USD' ? '$' : "so'm";
-      return `${option.program}, ${option.dpPct}% взнос, ${option.term} мес., ${option.rate.toFixed(1)}%, ${formatNum(option.monthly)} ${currency}/мес.`;
+      return `${option.program}, ${option.dpPct.toFixed(option.customDp ? 1 : 0)}% взнос, ${option.term} мес., ${option.rate.toFixed(1)}%, ${formatNum(option.monthly)} ${currency}/мес., переплата ${formatNum(option.overpayment)} ${currency}`;
     }
 
     function advisorCard(label, option, value, meta) {
@@ -2044,12 +2088,13 @@
       const bestInstallment = bestBy(zeroOptions, (item) => -item.term * 100000000 + item.dpPct * 100000 + item.monthly);
       const lowestMonthly = bestBy(options, (item) => item.monthly * 100 + item.dpPct);
       const cheapestCredit = bestBy(options.filter((item) => item.rate > 0), (item) => item.rate * 100000000 + item.dpPct * 100000 + item.monthly);
+      const lowestOverpayment = bestBy(options, (item) => item.overpayment * 100 + item.monthly);
 
       cards.innerHTML = [
         advisorCard(
           'Самый низкий взнос',
           minDp,
-          `${minDp.dpPct}% (${formatNum(minDp.dpAmount)} ${currency})`,
+          `${minDp.dpPct.toFixed(minDp.customDp ? 1 : 0)}% (${formatNum(minDp.dpAmount)} ${currency})`,
           describeOption(minDp)
         ),
         advisorCard(
@@ -2069,6 +2114,12 @@
           cheapestCredit,
           cheapestCredit ? `${cheapestCredit.rate.toFixed(1)}%` : '',
           cheapestCredit ? describeOption(cheapestCredit) : 'Положительных ставок нет, смотрите 0% рассрочку.'
+        ),
+        advisorCard(
+          'Минимальная переплата',
+          lowestOverpayment,
+          `${formatNum(lowestOverpayment.overpayment)} ${currency}`,
+          `Всего к оплате: ${formatNum(lowestOverpayment.total)} ${currency}. ${describeOption(lowestOverpayment)}`
         )
       ].join('');
 
@@ -2082,7 +2133,7 @@
           <div class="advisor-term">
             <strong>${term} мес.</strong>
             <div class="advisor-bank">${escapeHtml(best.bank)}</div>
-            <div class="advisor-meta">${escapeHtml(best.program)}, ${best.dpPct}% взнос, ${best.rate.toFixed(1)}%</div>
+            <div class="advisor-meta">${escapeHtml(best.program)}, ${best.dpPct.toFixed(best.customDp ? 1 : 0)}% взнос, ${best.rate.toFixed(1)}%, переплата ${formatNum(best.overpayment)} ${currency}</div>
             <div class="advisor-value">${formatNum(best.monthly)} ${currency}</div>
           </div>
         `;
