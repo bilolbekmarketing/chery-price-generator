@@ -306,6 +306,101 @@
       padding: 26px;
     }
 
+    .advisor-panel {
+      margin: 0 0 26px;
+      padding: 24px;
+    }
+
+    .advisor-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .advisor-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.1;
+      font-weight: 950;
+    }
+
+    .advisor-subtitle {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 750;
+    }
+
+    .advisor-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .advisor-card {
+      min-height: 150px;
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--soft);
+    }
+
+    .advisor-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .advisor-bank {
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.12;
+      font-weight: 950;
+    }
+
+    .advisor-value {
+      color: var(--blue);
+      font-size: 19px;
+      line-height: 1.12;
+      font-weight: 950;
+    }
+
+    .advisor-meta {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 800;
+    }
+
+    .advisor-term-list {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .advisor-term {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .advisor-term strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
     .preview-head {
       display: flex;
       justify-content: space-between;
@@ -976,6 +1071,8 @@
       .topbar { align-items: flex-start; flex-direction: column; }
       .top-controls { justify-content: flex-start; }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .advisor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .advisor-term-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 620px) {
@@ -1010,7 +1107,12 @@
         width: 100%;
       }
       .grid { grid-template-columns: 1fr; }
-      .controls-panel, .preview-panel { padding: 18px; border-radius: 22px; }
+      .controls-panel, .preview-panel, .advisor-panel { padding: 18px; border-radius: 22px; }
+      .advisor-head { flex-direction: column; }
+      .advisor-grid,
+      .advisor-term-list {
+        grid-template-columns: 1fr;
+      }
       .controls-bottom {
         display: grid;
         grid-template-columns: 1fr;
@@ -1150,6 +1252,18 @@
           <button class="download-btn secondary-download" id="openPngBtn" type="button" onclick="window.openPreparedPng && window.openPreparedPng()">Открыть PNG</button>
         </div>
       </div>
+    </section>
+
+    <section class="panel advisor-panel" id="advisorPanel">
+      <div class="advisor-head">
+        <div>
+          <h2 class="advisor-title">Помощник выбора</h2>
+          <p class="advisor-subtitle" id="advisorSummary">Сравнение всех банковских программ для выбранной модели.</p>
+        </div>
+        <div class="style-badge">Без страховки</div>
+      </div>
+      <div class="advisor-grid" id="advisorCards"></div>
+      <div class="advisor-term-list" id="advisorTerms"></div>
     </section>
 
     <section class="panel preview-panel">
@@ -1792,6 +1906,142 @@
       });
     }
 
+    function collectComparisonOptions() {
+      const price = shownPrice();
+      const trimPrograms = PROGRAM_MATRIX[state.model]?.[state.trim] || {};
+      const options = [];
+
+      BANKS.forEach((bank) => {
+        const program = trimPrograms[bank];
+        const rates = PROGRAM_RATES[bank]?.[program];
+        if (!program || !rates) return;
+
+        Object.keys(rates).map(Number).sort((a, b) => a - b).forEach((dpPct) => {
+          const dpAmount = price * (dpPct / 100);
+          const principal = Math.max(0, price - dpAmount);
+          Object.entries(rates[dpPct] || {}).forEach(([termText, rate]) => {
+            const term = Number(termText);
+            if (!Number.isFinite(term) || rate === undefined) return;
+            const monthly = calculateAnnuity(principal, term, Number(rate));
+            options.push({
+              bank,
+              program,
+              dpPct,
+              dpAmount,
+              principal,
+              term,
+              rate: Number(rate),
+              monthly,
+              total: dpAmount + monthly * term
+            });
+          });
+        });
+      });
+
+      return options;
+    }
+
+    function bestBy(options, score) {
+      return options.reduce((best, item) => {
+        if (!best) return item;
+        return score(item) < score(best) ? item : best;
+      }, null);
+    }
+
+    function describeOption(option) {
+      if (!option) return '';
+      const currency = state.currency === 'USD' ? '$' : "so'm";
+      return `${option.program}, ${option.dpPct}% взнос, ${option.term} мес., ${option.rate.toFixed(1)}%, ${formatNum(option.monthly)} ${currency}/мес.`;
+    }
+
+    function advisorCard(label, option, value, meta) {
+      if (!option) {
+        return `
+          <article class="advisor-card">
+            <div class="advisor-label">${escapeHtml(label)}</div>
+            <div class="advisor-bank">Нет данных</div>
+            <div class="advisor-meta">Для этой комплектации нет подходящих программ.</div>
+          </article>
+        `;
+      }
+
+      return `
+        <article class="advisor-card">
+          <div class="advisor-label">${escapeHtml(label)}</div>
+          <div class="advisor-bank">${escapeHtml(option.bank)}</div>
+          <div class="advisor-value">${escapeHtml(value)}</div>
+          <div class="advisor-meta">${escapeHtml(meta || describeOption(option))}</div>
+        </article>
+      `;
+    }
+
+    function renderAdvisor() {
+      const cards = $('#advisorCards');
+      const termsNode = $('#advisorTerms');
+      const summary = $('#advisorSummary');
+      if (!cards || !termsNode || !summary) return;
+
+      const options = collectComparisonOptions();
+      const currency = state.currency === 'USD' ? '$' : "so'm";
+      const trimLabel = state.trim === '-' ? 'без комплектации' : state.trim;
+      summary.textContent = `${state.model} / ${trimLabel}: найдено ${options.length} вариантов по ${new Set(options.map((item) => item.bank)).size} банкам. Сравнение без учета страховки.`;
+
+      if (!options.length) {
+        cards.innerHTML = advisorCard('Рекомендация', null);
+        termsNode.innerHTML = '';
+        return;
+      }
+
+      const minDp = bestBy(options, (item) => item.dpPct * 100000000 + item.monthly);
+      const zeroOptions = options.filter((item) => item.rate === 0);
+      const bestInstallment = bestBy(zeroOptions, (item) => -item.term * 100000000 + item.dpPct * 100000 + item.monthly);
+      const lowestMonthly = bestBy(options, (item) => item.monthly * 100 + item.dpPct);
+      const cheapestCredit = bestBy(options.filter((item) => item.rate > 0), (item) => item.rate * 100000000 + item.dpPct * 100000 + item.monthly);
+
+      cards.innerHTML = [
+        advisorCard(
+          'Самый низкий взнос',
+          minDp,
+          `${minDp.dpPct}% (${formatNum(minDp.dpAmount)} ${currency})`,
+          describeOption(minDp)
+        ),
+        advisorCard(
+          'Лучшая 0% рассрочка',
+          bestInstallment,
+          bestInstallment ? `${bestInstallment.term} мес. под 0%` : '',
+          bestInstallment ? `${bestInstallment.bank}: ${formatNum(bestInstallment.monthly)} ${currency}/мес., взнос ${bestInstallment.dpPct}%` : ''
+        ),
+        advisorCard(
+          'Минимальный платеж',
+          lowestMonthly,
+          `${formatNum(lowestMonthly.monthly)} ${currency}/мес.`,
+          describeOption(lowestMonthly)
+        ),
+        advisorCard(
+          'Самый дешевый кредит',
+          cheapestCredit,
+          cheapestCredit ? `${cheapestCredit.rate.toFixed(1)}%` : '',
+          cheapestCredit ? describeOption(cheapestCredit) : 'Положительных ставок нет, смотрите 0% рассрочку.'
+        )
+      ].join('');
+
+      const preferredTerms = [12, 18, 24, 36, 48, 60];
+      termsNode.innerHTML = preferredTerms.map((term) => {
+        const best = bestBy(options.filter((item) => item.term === term), (item) => item.monthly * 100 + item.dpPct);
+        if (!best) {
+          return `<div class="advisor-term"><strong>${term} мес.</strong><div class="advisor-meta">Нет программы</div></div>`;
+        }
+        return `
+          <div class="advisor-term">
+            <strong>${term} мес.</strong>
+            <div class="advisor-bank">${escapeHtml(best.bank)}</div>
+            <div class="advisor-meta">${escapeHtml(best.program)}, ${best.dpPct}% взнос, ${best.rate.toFixed(1)}%</div>
+            <div class="advisor-value">${formatNum(best.monthly)} ${currency}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function render() {
       applyTranslations();
       renderBankOptions();
@@ -1812,6 +2062,7 @@
       $('#dateLine').textContent = `Sana: ${new Date().toLocaleDateString('ru-RU')}`;
       document.body.className = state.style;
       renderMatrix();
+      renderAdvisor();
       requestAnimationFrame(fitPreview);
       schedulePrepareDownload();
     }
