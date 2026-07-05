@@ -413,7 +413,30 @@
       white-space: nowrap;
     }
 
-    .price-value span {
+    .price-old {
+      display: none;
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 900;
+      text-decoration: line-through;
+      text-decoration-thickness: 2px;
+      text-decoration-color: #ff3b30;
+    }
+
+    .price-value.discounted .price-old {
+      display: block;
+    }
+
+    .price-main {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .price-main span:last-child {
       margin-left: 6px;
       font-size: 18px;
       font-weight: 900;
@@ -762,7 +785,9 @@
       }
       .checkbox-pill { width: 100%; justify-content: center; }
       .price-card {
-        overflow: hidden;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
         padding: 12px;
         border-radius: 18px;
       }
@@ -900,7 +925,10 @@
               </div>
               <div class="price-box">
                 <div class="price-caption" data-i18n="carCost">AVTOMOBIL NARXI</div>
-                <div class="price-value"><span id="priceValue">254 900 000</span> <span id="currencyLabel">so'm</span></div>
+                <div class="price-value" id="priceBlock">
+                  <div class="price-old" id="oldPriceValue"></div>
+                  <div class="price-main"><span id="priceValue">254 900 000</span> <span id="currencyLabel">so'm</span></div>
+                </div>
               </div>
             </div>
 
@@ -1221,16 +1249,24 @@
       return getActiveProgram() || '100% ОПЛАТА';
     }
 
+    function discountPercent() {
+      const discount = Number($('#discount').value || 0);
+      return discount > 0 && discount <= 100 ? discount : 0;
+    }
+
     function priceUZS() {
       const price = currentTrim().price;
-      const discount = Number($('#discount').value || 0);
-      return discount > 0 && discount <= 100 ? price * (1 - discount / 100) : price;
+      const discount = discountPercent();
+      return discount > 0 ? price * (1 - discount / 100) : price;
+    }
+
+    function toShownCurrency(price) {
+      if (state.currency === 'USD') return price / Math.max(1, Number($('#exchangeRate').value || 1));
+      return price;
     }
 
     function shownPrice() {
-      const price = priceUZS();
-      if (state.currency === 'USD') return price / Math.max(1, Number($('#exchangeRate').value || 1));
-      return price;
+      return toShownCurrency(priceUZS());
     }
 
     function renderModelOptions() {
@@ -1348,16 +1384,46 @@
 
       const rates = getActiveRates();
       const trimLabel = state.trim === '-' ? '' : ` ${state.trim}`;
+      const originalShownPrice = toShownCurrency(currentTrim().price);
+      const currentShownPrice = shownPrice();
+      const hasDiscount = discountPercent() > 0 && currentShownPrice < originalShownPrice;
+      const currencyLabel = state.currency === 'USD' ? '$' : "so'm";
       $('#programName').textContent = getProgramName();
       $('#offerTitle').textContent = `${state.model}${trimLabel}`;
-      $('#priceValue').textContent = formatNum(shownPrice());
-      $('#currencyLabel').textContent = state.currency === 'USD' ? '$' : "so'm";
+      $('#priceBlock').classList.toggle('discounted', hasDiscount);
+      $('#oldPriceValue').textContent = hasDiscount ? `${formatNum(originalShownPrice)} ${currencyLabel}` : '';
+      $('#priceValue').textContent = formatNum(currentShownPrice);
+      $('#currencyLabel').textContent = currencyLabel;
       $('#styleName').textContent = state.style;
       $('#dateLine').textContent = `Sana: ${new Date().toLocaleDateString('ru-RU')}`;
       document.body.className = state.style;
       renderMatrix();
       requestAnimationFrame(fitPreview);
       schedulePrepareDownload();
+    }
+
+    function measureCapture() {
+      const capture = $('#capture');
+      if (!capture) return { width: 0, height: 0 };
+
+      const previousTransform = capture.style.transform;
+      capture.style.transform = 'none';
+
+      const captureRect = capture.getBoundingClientRect();
+      let right = capture.scrollWidth;
+      let bottom = capture.scrollHeight;
+
+      capture.querySelectorAll('*').forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        right = Math.max(right, rect.right - captureRect.left);
+        bottom = Math.max(bottom, rect.bottom - captureRect.top);
+      });
+
+      capture.style.transform = previousTransform;
+      return {
+        width: Math.ceil(right),
+        height: Math.ceil(bottom)
+      };
     }
 
     function fitPreview() {
@@ -1367,8 +1433,9 @@
       if (!card || !stage || !capture) return;
 
       const isMobile = window.matchMedia('(max-width: 620px)').matches;
-      const naturalWidth = capture.scrollWidth || capture.getBoundingClientRect().width;
-      const naturalHeight = capture.scrollHeight || capture.getBoundingClientRect().height;
+      const natural = measureCapture();
+      const naturalWidth = natural.width;
+      const naturalHeight = natural.height;
 
       if (!isMobile || !naturalWidth || !naturalHeight) {
         capture.style.transform = 'none';
@@ -1379,7 +1446,8 @@
       }
 
       const availableWidth = card.clientWidth;
-      const scale = Math.min(1, availableWidth / naturalWidth);
+      const fitScale = availableWidth / naturalWidth;
+      const scale = Math.min(0.42, Math.max(fitScale, fitScale * 1.45));
       capture.style.transform = `scale(${scale})`;
       stage.style.minWidth = '0';
       stage.style.width = `${Math.ceil(naturalWidth * scale)}px`;
@@ -1584,9 +1652,9 @@
       const node = $('#capture');
       const widthInput = Number($('#exactWidth').value || 0);
       const heightInput = Number($('#exactHeight').value || 0);
-      const rect = node.getBoundingClientRect();
-      const width = widthInput || Math.ceil(node.scrollWidth || rect.width);
-      const height = heightInput || Math.ceil(node.scrollHeight || rect.height);
+      const natural = measureCapture();
+      const width = widthInput || natural.width;
+      const height = heightInput || natural.height;
       const svg = getExportSvg(node, width, height);
       const pngBlob = await renderSvgToPngBlob(svg, width, height);
 
